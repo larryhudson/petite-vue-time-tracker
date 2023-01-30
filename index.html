@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script type="module" src="/petite-vue.es.js"></script>
+    <style>
+
+        
+        body {
+            font-family: sans-serif;
+            line-height: 1.5;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        th, td {
+            border: 1px solid black;
+            padding: 0.5rem;
+        }
+
+        [aria-pressed] {
+            background-color: yellow;
+        }
+
+        th[scope="row"] {
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+
+    <div v-scope @vue:mounted="readFromLocalStorage">
+        
+
+        <h2>Tasks</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Timer</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="(task, taskIndex) in tasks">
+                    <th scope="row">${task.title}</th>
+                    <td><button @click="setCurrentTask(taskIndex)" :aria-pressed="currentTaskIndex === taskIndex ? 'true' : undefined">Start timer</button></td>
+                    <td><button @click="deleteTask(taskIndex)"><span v-if="deletingTaskId === taskIndex">Really delete</span><span v-else="">Delete</span></button></td>
+
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <form @submit.prevent="addTask">
+                            <input placeholder="Enter new task here" v-model="newTaskTitle" />
+                        <button :disabled="newTaskTitle === ''">Add</button>
+                        </form>
+                        
+                    </th>
+                </tr>
+
+            </tbody>
+        </table>
+
+        <h2>Time entries</h2>
+        <p v-if="tasks.length === 0">Create a task above to log your time.</p>
+        <table v-else="">
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Start time</th>
+                    <th>End time</th>
+                    <th>Duration</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr v-for="(entry, entryIndex) in timeEntries">
+                    <th>
+                        ${entry.taskTitle}
+                    </th>
+                    <td>${formatTime(entry.start)}</td>
+                    <td>${formatTime(entry.end)}</td>
+                    <td>${entry.duration}</td>
+                    <td><button @click="deleteTimeEntry(entryIndex)"><span v-if="deletingEntryIndex === entryIndex">Really delete</span><span v-else="">Delete</span></button></td>
+                </tr>
+                <tr v-if="currentTaskIndex !== null">
+                    <th>${currentTask.title}</th>
+                    <td>${formatTime(currentTaskStartTime)}</td>
+                    <td><button @click="stopTaskAndSave">Done</button></td>
+                    <td>${taskTimeElapsed}</td>
+                    <td><button @click="stopTask">Delete</button></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Focus sessions</h2>
+
+            <table v-if="sessions.length > 0 || currentSessionStartTime">
+                <thead>
+                    <tr>
+                        <th>Start time</th>
+                        <th>End time</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="session in sessions">
+                        <td>${formatTime(session.start)}</td>
+                        <td>${formatTime(session.end)}</td>
+                        <td>${session.duration}</td>
+                    </tr>
+                    <tr v-if="currentSessionStartTime !== null">
+                        <td>${formatTime(currentSessionStartTime)}</td>
+                        <td>${formatTime(currentSessionEndTime)} <button @click="stopSession">End now</button></td>
+                        <td>${taskTimeElapsed}</td>
+    
+                    </tr>
+                </tbody>
+            </table>
+
+        <form @submit.prevent="startSession">
+            <label>Session length (mins)</label>
+            <input type="number" v-model="newSessionLength" />
+    
+            <button>Start session</button>
+        </form>
+
+
+        <h2>Ideas for this thing</h2>
+        <ul>
+            <li>add a 'how to'</li>
+            <li>add a 'focus mode' - only show current task</li>
+        </ul>
+
+    </div>
+
+
+
+    <script type="module">
+        import { createApp } from "/petite-vue.es.js";
+
+        function secondsToHMS(secs) {
+            function z(n){return (n<10?'0':'') + n;}
+            var sign = secs < 0? '-':'';
+            secs = Math.abs(secs);
+            return sign + z(secs/3600 |0) + ':' + z((secs%3600) / 60 |0) + ':' + z((secs%60).toFixed(0));
+        }
+
+        function hmsToSeconds(s) {
+            var b = s.split(':');
+            return b[0]*3600 + b[1]*60 + (+b[2] || 0);
+        }
+
+        function getTimeBetween(startDate, endDate) {
+            return secondsToHMS((new Date(endDate) - new Date(startDate)) / 1000)
+        }
+        
+
+        createApp({
+            newTaskTitle: '',
+            newSessionLength: 25,
+            addTask() {
+                this.tasks.push({
+                    title: this.newTaskTitle
+                })
+                this.newTaskTitle = ''
+                this.updateLocalStorage()
+            },
+            updateLocalStorage() {
+                window.localStorage.setItem('tasks', JSON.stringify(this.tasks))
+                window.localStorage.setItem('timeEntries', JSON.stringify(this.timeEntries))
+                window.localStorage.setItem('sessions', JSON.stringify(this.sessions))
+
+            },
+            readFromLocalStorage() {
+                this.tasks = JSON.parse(window.localStorage.getItem('tasks') || "[]")
+                this.timeEntries = JSON.parse(window.localStorage.getItem('timeEntries') || "[]")
+                this.sessions = JSON.parse(window.localStorage.getItem('sessions') || "[]")
+
+            },
+            setCurrentTask(taskIndex) {
+
+                if (this.currentTaskIndex !== null) {
+                    this.stopTaskAndSave()
+                }
+
+                this.currentTaskIndex = taskIndex;
+                this.currentTaskStartTime = new Date()
+                this.taskTimerInterval = window.setInterval(this.updateTaskTimeElapsed.bind(this), 1000)
+            },
+            stopTask() {
+
+                this.currentTaskIndex = null;
+                this.currentTaskStartTime = null;
+                window.clearInterval(this.taskTimerInterval);
+                this.taskTimeElapsed = '00:00:00';
+            },
+            stopTaskAndSave() {
+
+                const endTime = new Date();
+
+                this.timeEntries.push({
+                    taskIndex: this.currentTaskIndex,
+                    taskTitle: this.currentTask.title,
+                    start: this.currentTaskStartTime,
+                    end: endTime,
+                    duration: getTimeBetween(this.currentTaskStartTime, endTime)
+                })
+
+                this.updateLocalStorage();
+
+                this.currentTaskIndex = null;
+                this.currentTaskStartTime = null;
+                window.clearInterval(this.taskTimerInterval);
+
+
+            },
+            stopSession() {
+
+                const endTime = new Date();
+
+                this.sessions.push({
+                    // taskIndex: this.currentTaskIndex,
+                    // taskTitle: this.currentTask.title,
+                    start: this.currentSessionStartTime,
+                    end: endTime,
+                    duration: getTimeBetween(this.currentSessionStartTime, endTime)
+                })
+
+                this.updateLocalStorage();
+
+                this.currentSessionStartTime = null;
+                window.clearInterval(this.sessionTimerInterval);
+
+
+                },
+            get currentTask() {
+                if (this.currentTaskIndex !== null) {
+                    console.log(this.tasks)
+                    console.log(this.currentTaskIndex)
+                    return this.tasks[this.currentTaskIndex]
+                } else {
+                    return null
+                }
+            },
+            deletingTaskId: null,
+            deleteTask(taskIndex) {
+                if (this.deletingTaskId === taskIndex) {
+                    this.tasks = this.tasks.filter((t, tIndex) => tIndex !== taskIndex )
+                    this.deletingTaskId = null
+                    this.updateLocalStorage()
+                } else {
+                    this.deletingTaskId = taskIndex
+                }
+            },
+            deletingEntryIndex: null,
+            deleteTimeEntry(entryIndex) {
+                if (this.deletingEntryIndex === entryIndex) {
+                    this.timeEntries = this.timeEntries.filter((e, eIndex) => eIndex !== entryIndex )
+                    this.deletingEntryIndex = null
+                    this.updateLocalStorage()
+                } else {
+                    this.deletingEntryIndex = entryIndex
+                }
+            },
+            sessions: [],
+            timeEntries: [],
+            currentTaskIndex: null,
+            currentTaskStartTime: null,
+            currentSessionStartTime: null,
+            sessionTimerInterval: null,
+            taskTimerInterval: null,
+            sessionTimeElapsed: null,
+            taskTimeElapsed: null,
+            formatTime(dateTime) {
+                const formatter = Intl.DateTimeFormat(undefined, {
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    // second: 'numeric'
+                })
+                return formatter.format(new Date(dateTime))
+                // console.log(dateTime)
+                // return dateTime
+            },
+            updateSessionTimeElapsed() {
+                this.sessionTimeElapsed = secondsToHMS((new Date() - new Date(this.currentSessionStartTime)) / 1000);
+            },
+            updateTaskTimeElapsed() {
+                this.taskTimeElapsed = secondsToHMS((new Date() - new Date(this.currentTaskStartTime)) / 1000);
+            },
+            startSession() {
+                this.currentSessionStartTime = new Date()
+                console.log(this.currentSessionStartTime)
+                this.currentSessionDuration = this.newSessionLength
+                this.currentSessionEndTime = new Date(this.currentSessionStartTime.getTime() + this.newSessionLength*60000)
+                console.log(this.currentSessionEndTime)
+                console.log(this)
+                this.sessionTimerInterval = window.setInterval(this.updateSessionTimeElapsed.bind(this), 1000)
+            },
+            tasks: [],
+            $delimiters: ['${', '}']
+        }).mount()
+    </script>
+
+
+    
+</body>
+</html>
