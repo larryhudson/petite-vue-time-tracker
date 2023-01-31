@@ -407,7 +407,9 @@
             },
             addNewEntry() {
                 this.timeEntries.push(
-                    this.newEntry
+                    {
+                        ...this.newEntry
+                    }
                 );
 
                 this.updateLocalStorage();
