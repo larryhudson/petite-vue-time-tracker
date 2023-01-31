@@ -6,12 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
     <script type="module" src="/petite-vue.es.js"></script>
+    <link rel="stylesheet" href="/reasonable-colors.css" />
     <style>
 
+        html {
+            background-color: var(--color-red-5);
+        }
         
         body {
+            background-color: var(--color-red-1);
+            padding: 2rem;
+
             font-family: sans-serif;
             line-height: 1.5;
+            max-width: 60rem;
+            margin: 0 auto;
         }
 
         table {
@@ -24,17 +33,76 @@
         }
 
         [aria-pressed] {
-            background-color: yellow;
+            background-color: var(--color-red-5);
+            color: var(--color-red-1);
         }
 
         th[scope="row"] {
             text-align: left;
+        }
+
+        tr.complete {
+            background-color: var(--color-green-1);
+        }
+
+        h2 {
+            margin-top: 3rem;
+        }
+
+        #how-to {
+            border: 1px solid var(--color-red-3);
+            padding: 1rem;
+            background-color: var(--color-red-2);
+        }
+
+        .big {
+            font-size: 3rem;
+        }
+
+        .bold {
+            font-weight: bold;
+        }
+
+        textarea, input {
+            font-family: inherit;
+            padding: 0.25rem;
+            /* background-color: var(--color-raspberry-1); */
+            border: 1px solid var(--color-gray-5);
+        }
+
+        #focus-mode textarea {
+            font-family: inherit;
+            padding: 0.5rem;
+            width: 100%;
+            max-width: 24rem;
+            height: 6rem;
+            
         }
     </style>
 </head>
 <body>
 
     <div v-scope @vue:mounted="readFromLocalStorage">
+
+        <div v-show="!focusMode" id="not-focus-mode">
+
+        <h1><code>petite-vue-time-tracker</code></h1>
+        <p>A simple tool for keeping track of what you're working on, and for how long.</p>
+
+        <p>This saves data in your web browser so you can close the window and come back later.</p>
+
+        <details id="how-to">
+            <summary>How to use</summary>
+            <div>
+                <ol>
+                    <li>add some tasks in the 'Tasks' section</li>
+                    <li>click 'start timer' next to a task to track time as you work</li>
+                    <li>add notes if you want.</li>
+                    <li>add a manual time entry if you want.</li>
+                    <li>use focus sessions to start a pomodoro timer.</li>
+                </ol>
+            </div>
+        </details>
         
 
         <h2>Tasks</h2>
@@ -48,9 +116,13 @@
                 </tr>
             </thead>
             <tbody>
-                <tr v-for="(task, taskIndex) in tasks">
-                    <th scope="row">${task.title}</th>
-                    <td><button @click="setCurrentTask(taskIndex)" :aria-pressed="currentTaskIndex === taskIndex ? 'true' : undefined">Start timer</button></td>
+                <tr v-for="(task, taskIndex) in tasks" :class="{ complete : task.complete }">
+                    <th scope="row">
+                        <button @click="task.complete = !task.complete; updateLocalStorage();">
+                        <span v-if="task.complete">✅</span>
+                        <span v-else="">⏹️</span></button> ${task.title}</th>
+                    <td><button @click="setCurrentTask(taskIndex)" :aria-pressed="currentTaskIndex === taskIndex ? 'true' : undefined">Start timer</button>
+                    <button v-if="currentTaskIndex === taskIndex" @click="focusMode = true">Focus mode</button></td>
                     <td><button @click="deleteTask(taskIndex)"><span v-if="deletingTaskId === taskIndex">Really delete</span><span v-else="">Delete</span></button></td>
 
                 </tr>
@@ -68,6 +140,7 @@
         </table>
 
         <h2>Time entries</h2>
+
         <p v-if="tasks.length === 0">Create a task above to log your time.</p>
         <table v-else="">
             <thead>
@@ -76,17 +149,20 @@
                     <th>Start time</th>
                     <th>End time</th>
                     <th>Duration</th>
+                    <th>Notes</th>
                     <th>Delete</th>
                 </tr>
             </thead>
             <tbody>
                 <tr v-for="(entry, entryIndex) in timeEntries">
+                    
                     <th>
                         ${entry.taskTitle}
                     </th>
-                    <td>${formatTime(entry.start)}</td>
-                    <td>${formatTime(entry.end)}</td>
+                    <td>${entry.manual ? entry.start : formatTime(entry.start)}</td>
+                    <td>${entry.manual ? entry.end : formatTime(entry.end)}</td>
                     <td>${entry.duration}</td>
+                    <td><textarea v-model="entry.notes" @input="updateLocalStorage"></textarea></td>
                     <td><button @click="deleteTimeEntry(entryIndex)"><span v-if="deletingEntryIndex === entryIndex">Really delete</span><span v-else="">Delete</span></button></td>
                 </tr>
                 <tr v-if="currentTaskIndex !== null">
@@ -94,7 +170,33 @@
                     <td>${formatTime(currentTaskStartTime)}</td>
                     <td><button @click="stopTaskAndSave">Done</button></td>
                     <td>${taskTimeElapsed}</td>
+                    <td><textarea v-model="currentTaskNote"></textarea></td>
                     <td><button @click="stopTask">Delete</button></td>
+                </tr>
+                <tr>
+                    <td colspan="6">
+                        Manually add a time entry below:
+                    </td>
+                </tr>
+                <tr>
+                    <th>
+                        <input placeholder="Task title"  v-model="newEntry.taskTitle" />
+                    </th>
+                    <td>
+                        <input placeholder="Start time" v-model="newEntry.start" />
+                    </td>
+                    <td>
+                        <input placeholder="End time" v-model="newEntry.end" />
+                    </td>
+                    <td>
+                        <input placeholder="Duration" v-model="newEntry.duration" />
+                    </td>
+                    <td>
+                        <textarea placeholder="Notes" v-model="newEntry.notes"></textarea>
+                    </td>
+                    <td>
+                        <button @click="addNewEntry">Add</button>
+                    </td>
                 </tr>
             </tbody>
         </table>
@@ -107,18 +209,25 @@
                         <th>Start time</th>
                         <th>End time</th>
                         <th>Duration</th>
+                        <th>Notes</th>
+                        <th>Delete</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="session in sessions">
+                    <tr v-for="(session, sessionIndex) in sessions">
                         <td>${formatTime(session.start)}</td>
                         <td>${formatTime(session.end)}</td>
                         <td>${session.duration}</td>
+                        <td><input v-model="session.notes" @input="updateLocalStorage" /></td>
+                    <td><button @click="deleteSession(sessionIndex)"><span v-if="deletingSessionIndex === sessionIndex">Really delete</span><span v-else="">Delete</span></button></td>
                     </tr>
+        
                     <tr v-if="currentSessionStartTime !== null">
                         <td>${formatTime(currentSessionStartTime)}</td>
                         <td>${formatTime(currentSessionEndTime)} <button @click="stopSession">End now</button></td>
-                        <td>${taskTimeElapsed}</td>
+                        <td>${sessionTimeElapsed}</td>
+                        
+
     
                     </tr>
                 </tbody>
@@ -131,12 +240,17 @@
             <button>Start session</button>
         </form>
 
+    </div>
 
-        <h2>Ideas for this thing</h2>
-        <ul>
-            <li>add a 'how to'</li>
-            <li>add a 'focus mode' - only show current task</li>
-        </ul>
+    <div v-show="focusMode" id="focus-mode">
+        <h1>Focus</h1>
+        <p class="big bold" style="margin-bottom: 0;">${taskTimeElapsed}</p>
+        <p>${currentTask !== null ? currentTask.title : ""}</p>
+        <h2>Notes</h2>
+        <p><textarea v-model="currentTaskNote"></textarea></p>
+        <button @click="focusMode = false">Exit focus mode</button>
+    </div>
+
 
     </div>
 
@@ -210,6 +324,7 @@
                     taskTitle: this.currentTask.title,
                     start: this.currentTaskStartTime,
                     end: endTime,
+                    notes: this.currentTaskNote,
                     duration: getTimeBetween(this.currentTaskStartTime, endTime)
                 })
 
@@ -217,6 +332,7 @@
 
                 this.currentTaskIndex = null;
                 this.currentTaskStartTime = null;
+                this.currentTaskNote = "";
                 window.clearInterval(this.taskTimerInterval);
 
 
@@ -269,8 +385,34 @@
                     this.deletingEntryIndex = entryIndex
                 }
             },
+            deletingSessionIndex: null,
+            deleteSession(sessionIndex) {
+                if (this.deletingSessionIndex === sessionIndex) {
+                    this.sessions = this.sessions.filter((s, sIndex) => sIndex !== sessionIndex )
+                    this.deletingSessionIndex = null
+                    this.updateLocalStorage()
+                } else {
+                    this.deletingSessionIndex = sessionIndex
+                }
+            },
             sessions: [],
             timeEntries: [],
+            newEntry: {
+                taskTitle: "",
+                start: "",
+                end: "",
+                duration: "",
+                notes: "",
+                manual: true,
+            },
+            addNewEntry() {
+                this.timeEntries.push(
+                    this.newEntry
+                );
+
+                this.updateLocalStorage();
+            },
+            currentTaskNote: "",
             currentTaskIndex: null,
             currentTaskStartTime: null,
             currentSessionStartTime: null,
@@ -304,6 +446,7 @@
                 this.sessionTimerInterval = window.setInterval(this.updateSessionTimeElapsed.bind(this), 1000)
             },
             tasks: [],
+            focusMode: false,
             $delimiters: ['${', '}']
         }).mount()
     </script>
